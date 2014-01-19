@@ -13,10 +13,8 @@ package edu.wpi.first.wpilibj.templates;
 
 import edu.wpi.first.wpilibj.Compressor;
 import edu.wpi.first.wpilibj.DigitalInput;
-import edu.wpi.first.wpilibj.Gyro;
 import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj.SimpleRobot;
-import edu.wpi.first.wpilibj.Solenoid;
 
 /**
  * The VM is configured to automatically run this class, and to call the
@@ -42,8 +40,8 @@ public class RobotTemplate extends SimpleRobot
     Arm Arm;
     Shooter Shooter;
     Kracken Kracken;
-    DigitalInput LightColorSwitch;
-    Gyro AutoGyro;
+    
+    LightManager LightManager;
     /**
      * This function is called when the robot has been turned on.
      */
@@ -56,15 +54,16 @@ public class RobotTemplate extends SimpleRobot
         GamepadButtons = new Joystick(Constants.GAMEPAD_BUTTONS_PORT);
         Drive = new ButterflyDrive();
         SafeModeSwitch = new DigitalInput(Constants.SAFE_MODE_SWITCH_CHANNEL);
-        Shooter = new Shooter();
+        LightManager = new LightManager();
+        Shooter = new Shooter(LightManager, SafeModeSwitch);
         Arm = new Arm(Shooter);
-        Kracken = new Kracken();
+        Kracken = new Kracken(LightManager, Arm);
         MainCompressor = new Compressor(Constants.COMPRESSOR_SWITCH, Constants.COMPRESSOR_RELAY);
         Arm.start();
+        
         //start the compressor
         MainCompressor.start();
-        LightColorSwitch = new DigitalInput(Constants.LIGHT_SWITCH_CHANNEL);
-        AutoGyro = new Gyro(Constants.AUTO_GYRO_CHANNEL);
+        
         //set the arm position up and start it
         Arm.setPosition(2);
         
@@ -108,7 +107,7 @@ public class RobotTemplate extends SimpleRobot
         {
             try {
                 System.out.println("Delay");
-                Thread.sleep(3000); //delay 3 seconds
+                Thread.sleep(10000); //delay 10 seconds
             } catch (InterruptedException ex) {
                 ex.printStackTrace();
             }
@@ -126,12 +125,12 @@ public class RobotTemplate extends SimpleRobot
         }
         else if(autoInput == 2)
         {
-            //5 disc front
+            //5 disc back
             auto2();
         }
         else if(autoInput == 3)
         {
-            //4 disc middle
+            //5 disc front
             auto3();
         }
         else if(autoInput == 4)
@@ -151,11 +150,12 @@ public class RobotTemplate extends SimpleRobot
         }
         else if(autoInput == 7)
         {
-            //
+            //lower arm
             auto7();
         }
         else if(autoInput == 8)
         {
+            //special pnumatics
             auto8();
         }
     }
@@ -179,11 +179,30 @@ public class RobotTemplate extends SimpleRobot
             }
             else if(JoystickLeft.getRawButton(Constants.ARM_DOWN_BUTTON) || JoystickRight.getRawButton(Constants.ARM_DOWN_BUTTON))
             {
-                driverPosition = 0;
+                driverPosition = 3;
             }
             else if(JoystickLeft.getRawButton(Constants.ARM_LOW_BUTTON_LEFT) || JoystickRight.getRawButton(Constants.ARM_LOW_BUTTON_RIGHT))
             {
                 driverPosition = 3;
+            }
+            
+            //pickup control
+            if(GamepadButtons.getRawButton(Constants.ARM_PICKUP_BUTTON))
+            {
+                Arm.pickupOn();
+                driverPosition = 0;
+            }
+            else if(GamepadButtons.getRawButton(Constants.ARM_PICKUP_BACKWARDS_BUTTON))
+            {
+                Arm.pickupBackwards();
+            }
+            else
+            {
+                Arm.pickupOff();
+                if(driverPosition == 0)
+                {
+                    driverPosition = 3;
+                }
             }
             //buttons override
             if(GamepadButtons.getRawButton(Constants.ARM_LOAD_BUTTON))
@@ -193,20 +212,6 @@ public class RobotTemplate extends SimpleRobot
             else
             {
                 Arm.setPosition(driverPosition);
-            }
-            
-            //pickup control
-            if(GamepadButtons.getRawButton(Constants.ARM_PICKUP_BUTTON))
-            {
-                Arm.pickupOn();
-            }
-            else if(GamepadButtons.getRawButton(Constants.ARM_PICKUP_BACKWARDS_BUTTON))
-            {
-                Arm.pickupBackwards();
-            }
-            else
-            {
-                Arm.pickupOff();
             }
             
             //shooter
@@ -224,6 +229,11 @@ public class RobotTemplate extends SimpleRobot
             {
                 Shooter.shoot();
             } 
+//            
+//            else if (GamepadButtons.getRawButton(Constants.BACKUP_SHOOTER_BUTTON))
+//            {
+//                
+//            }
             else
             {
                 Shooter.load();
@@ -244,32 +254,68 @@ public class RobotTemplate extends SimpleRobot
             if(!SafeModeSwitch.get())
             {
                 //slow mode
-                Drive.SetRightSpeed(rightJoystickValue*Constants.REDUCE_DRIVE_SPEED);
-                Drive.SetLeftSpeed(leftJoystickValue*Constants.REDUCE_DRIVE_SPEED);
+                Drive.setRightSpeed(rightJoystickValue*Math.abs(rightJoystickValue)*Constants.REDUCE_DRIVE_SPEED);
+                Drive.setLeftSpeed(leftJoystickValue*Math.abs(leftJoystickValue)*Constants.REDUCE_DRIVE_SPEED);
             }
             else
             {
                 //fast mode
-                Drive.SetLeftSpeed(leftJoystickValue*Math.abs(leftJoystickValue));
-                Drive.SetRightSpeed(rightJoystickValue*Math.abs(rightJoystickValue));
+                Drive.setLeftSpeed(leftJoystickValue*Math.abs(leftJoystickValue));
+                Drive.setRightSpeed(rightJoystickValue*Math.abs(rightJoystickValue));
             }
             
             //traction piston control
-            Drive.Traction(JoystickRight.getRawButton(Constants.DRIVE_PISTON_BUTTON) || JoystickLeft.getRawButton(Constants.DRIVE_PISTON_BUTTON));
+            Drive.tractionDown(JoystickRight.getRawButton(Constants.DRIVE_PISTON_BUTTON) || JoystickLeft.getRawButton(Constants.DRIVE_PISTON_BUTTON));
             
             //kracken control
             if(GamepadButtons.getRawButton(Constants.KRACKEN_FIRE_BUTTON))
             {
-                Kracken.fire();
+                Kracken.fire20Pt();
             }
             boolean krackenInOutButtonNew = GamepadButtons.getRawButton(Constants.KRACKEN_IN_OUT_BUTTON);
             if(krackenInOutButtonNew && (krackenInOutButtonNew != krackenInOutButtonOld))
             {
                 krackenOut = !krackenOut;
-                Kracken.out(krackenOut);
+                Kracken.hang10Pt(krackenOut);
             }
             krackenInOutButtonOld = krackenInOutButtonNew;
             
+            if(JoystickRight.getRawButton(Constants.SPNUMATICS_ALL_BUTTON))
+            {
+                Kracken.disablePnumatics();
+                Drive.disablePnumatics();
+                Shooter.disableFrontPistons();
+            }
+            if(JoystickLeft.getRawButton(Constants.SPNUMATICS_ALL_BUTTON))
+            {
+                Kracken.enablePnumatics();
+                Drive.enablePnumatics();
+                Shooter.enableFrontPistons();
+            }
+            if(JoystickRight.getRawButton(Constants.SPNUMATICS_DRIVE_BUTTON))
+            {
+                Drive.disablePnumatics();
+            }
+            if(JoystickLeft.getRawButton(Constants.SPNUMATICS_DRIVE_BUTTON))
+            {
+                Drive.enablePnumatics();
+            }
+            if(JoystickRight.getRawButton(Constants.SPNUMATICS_KRACKEN_BUTTON))
+            {
+                Kracken.disablePnumatics();
+            }
+            if(JoystickLeft.getRawButton(Constants.SPNUMATICS_KRACKEN_BUTTON))
+            {
+                Kracken.enablePnumatics();
+            }
+            if(JoystickRight.getRawButton(Constants.SPNUMATICS_SHOOTER_BUTTON))
+            {
+                Shooter.disableFrontPistons();
+            }
+            if(JoystickLeft.getRawButton(Constants.SPNUMATICS_SHOOTER_BUTTON))
+            {
+                Shooter.enableFrontPistons();
+            }
         }
     }
     
@@ -319,7 +365,7 @@ public class RobotTemplate extends SimpleRobot
         {
             System.out.println("Start Auton0");
             Arm.setPosition(0); //lower arm
-            Drive.Traction(true);
+            Drive.tractionDown(true);
             System.out.println("End Auton0");
         }
         catch (Exception e) 
@@ -337,16 +383,16 @@ public class RobotTemplate extends SimpleRobot
             Shooter.start();
             Shooter.setPositionUp(false);
             Arm.setPosition(0); //lower arm
-            Drive.Traction(true);
+            Drive.tractionDown(true);
             Thread.sleep(2000);
             
             //Shoot!!!
             autoShoot(3);
             
             System.out.println("Drive forward 1");
-            Drive.SetLeftSpeed(1);
-            Drive.SetRightSpeed(1);
-            Shooter.stop();
+            Drive.setLeftSpeed(1);
+            Drive.setRightSpeed(1);
+//            Shooter.stop();
             Shooter.load();
             Arm.pickupOn();
             Thread.sleep(1200);
@@ -354,8 +400,8 @@ public class RobotTemplate extends SimpleRobot
             System.out.println("Arm Load 1");
             Arm.pickupOff();
             Arm.setPosition(1);
-            Drive.SetLeftSpeed(0);
-            Drive.SetRightSpeed(0);
+            Drive.setLeftSpeed(0);
+            Drive.setRightSpeed(0);
             Thread.sleep(2000);
             
             System.out.println("Lower Arm 1");
@@ -364,34 +410,34 @@ public class RobotTemplate extends SimpleRobot
             Thread.sleep(750);
             
             System.out.println("Drive Forward 2");
-            Drive.SetLeftSpeed(1);
-            Drive.SetRightSpeed(1);
+            Drive.setLeftSpeed(1);
+            Drive.setRightSpeed(1);
             Thread.sleep(750);
             
             System.out.println("Arm Load");
-            Drive.SetLeftSpeed(0);
-            Drive.SetRightSpeed(0);
+            Drive.setLeftSpeed(0);
+            Drive.setRightSpeed(0);
             Arm.pickupOff();
             Arm.setPosition(1);
             Thread.sleep(1900);
             
             System.out.println("Drive Backward");
             Shooter.setPositionUp(true);
-            Drive.SetLeftSpeed(-1);
-            Drive.SetRightSpeed(-1);
-            Shooter.start();
+            Drive.setLeftSpeed(-1);
+            Drive.setRightSpeed(-1);
+  //          Shooter.start();
             Thread.sleep(400);
             
             System.out.println("Arm Up");
             Arm.setPosition(2);
             Arm.pickupOff();
-            Drive.SetLeftSpeed(-.5);
-            Drive.SetRightSpeed(-.5);
+            Drive.setLeftSpeed(-.5);
+            Drive.setRightSpeed(-.5);
             Thread.sleep(650);
             
             System.out.println("Stop Drive");
-            Drive.SetLeftSpeed(0);
-            Drive.SetRightSpeed(0);
+            Drive.setLeftSpeed(0);
+            Drive.setRightSpeed(0);
             
             Thread.sleep(400);
             
@@ -412,15 +458,15 @@ public class RobotTemplate extends SimpleRobot
             Shooter.start();
             Shooter.setPositionUp(false);
             Arm.setPosition(0); //lower arm
-            Drive.Traction(true);
+            Drive.tractionDown(true);
             Thread.sleep(2000);
             
             //Shoot!!!
             autoShoot(3);
             
             System.out.println("Drive forward 1");
-            Drive.SetLeftSpeed(1);
-            Drive.SetRightSpeed(1);
+            Drive.setLeftSpeed(1);
+            Drive.setRightSpeed(1);
             Shooter.load();
             Arm.pickupOn();
             Thread.sleep(500);
@@ -428,8 +474,8 @@ public class RobotTemplate extends SimpleRobot
             System.out.println("Arm Load 1");
             Arm.pickupOff();
             Arm.setPosition(1);
-            Drive.SetLeftSpeed(0);
-            Drive.SetRightSpeed(0);
+            Drive.setLeftSpeed(0);
+            Drive.setRightSpeed(0);
             Thread.sleep(3000);
             
             System.out.println("Arm Up");
@@ -438,12 +484,12 @@ public class RobotTemplate extends SimpleRobot
             Thread.sleep(1000);
             
             System.out.println("Backup");
-            Drive.SetLeftSpeed(-1);
-            Drive.SetRightSpeed(-1);
+            Drive.setLeftSpeed(-1);
+            Drive.setRightSpeed(-1);
             Thread.sleep(510);
             
-            Drive.SetLeftSpeed(0);
-            Drive.SetRightSpeed(0);
+            Drive.setLeftSpeed(0);
+            Drive.setRightSpeed(0);
             autoShoot(2);
             
             Shooter.stop();
@@ -462,15 +508,15 @@ public class RobotTemplate extends SimpleRobot
             Shooter.start();
             Shooter.setPositionUp(true);
             Arm.setPosition(0); //lower arm
-            Drive.Traction(true);
+            Drive.tractionDown(true);
             Thread.sleep(2000);
             
             //Shoot!!!
             autoShoot(3);
             
             System.out.println("Drive forward 1");
-            Drive.SetLeftSpeed(1);
-            Drive.SetRightSpeed(1);
+            Drive.setLeftSpeed(1);
+            Drive.setRightSpeed(1);
             Shooter.load();
             Arm.pickupOn();
             Thread.sleep(700);
@@ -478,8 +524,8 @@ public class RobotTemplate extends SimpleRobot
             System.out.println("Arm Load 1");
             Arm.pickupOff();
             Arm.setPosition(1);
-            Drive.SetLeftSpeed(0);
-            Drive.SetRightSpeed(0);
+            Drive.setLeftSpeed(0);
+            Drive.setRightSpeed(0);
             Thread.sleep(3000);
             
             System.out.println("Arm Up");
@@ -488,12 +534,12 @@ public class RobotTemplate extends SimpleRobot
             Thread.sleep(1000);
             
             System.out.println("Backup");
-            Drive.SetLeftSpeed(-1);
-            Drive.SetRightSpeed(-1);
+            Drive.setLeftSpeed(-1);
+            Drive.setRightSpeed(-1);
             Thread.sleep(710);
             
-            Drive.SetLeftSpeed(0);
-            Drive.SetRightSpeed(0);
+            Drive.setLeftSpeed(0);
+            Drive.setRightSpeed(0);
             autoShoot(2);
             Shooter.stop();
         }
@@ -509,7 +555,7 @@ public class RobotTemplate extends SimpleRobot
         {
             System.out.println("Start Auton4");
             Arm.setPosition(0); //lower arm
-            Drive.Traction(true);
+            Drive.tractionDown(true);
             Shooter.setPositionUp(false);
             Shooter.start();
             Thread.sleep(2000);
@@ -531,7 +577,7 @@ public class RobotTemplate extends SimpleRobot
         {
             System.out.println("Start Auton5");
             Arm.setPosition(0); //lower arm
-            Drive.Traction(true);
+            Drive.tractionDown(true);
             Shooter.setPositionUp(true);
             Shooter.start();
             Thread.sleep(2000);
@@ -551,7 +597,7 @@ public class RobotTemplate extends SimpleRobot
         try
         {
             System.out.println("Start Auton6");
-            Drive.Traction(true);
+            Drive.tractionDown(true);
             Arm.setPosition(2);
             Shooter.setPositionUp(false);
             Shooter.start();
@@ -561,24 +607,24 @@ public class RobotTemplate extends SimpleRobot
             
             System.out.println("Drive Backwards");
             Shooter.stop();
-            Drive.Traction(false);
-            Drive.SetLeftSpeed(-1);
-            Drive.SetRightSpeed(-1);
+            Drive.tractionDown(false);
+            Drive.setLeftSpeed(-1);
+            Drive.setRightSpeed(-1);
             Thread.sleep(250);
             
             System.out.println("Stop");
-            Drive.SetLeftSpeed(0);
-            Drive.SetRightSpeed(0);
+            Drive.setLeftSpeed(0);
+            Drive.setRightSpeed(0);
             Thread.sleep(100);
             
             System.out.println("Turn");
-            Drive.SetLeftSpeed(-1);
-            Drive.SetRightSpeed(1);
+            Drive.setLeftSpeed(-1);
+            Drive.setRightSpeed(1);
             Thread.sleep(500);
             
             System.out.println("Stop");
-            Drive.SetLeftSpeed(0);
-            Drive.SetRightSpeed(0);
+            Drive.setLeftSpeed(0);
+            Drive.setRightSpeed(0);
         }
         catch(Exception e)
         {
@@ -587,12 +633,12 @@ public class RobotTemplate extends SimpleRobot
     }
     public void auto7()
     {
-        //
+        //lower arm
         try
         {
             System.out.println("Start Auton 7");
             Arm.setPosition(0); //lower arm
-            Drive.Traction(true);
+            Drive.tractionDown(true);
             Shooter.setPositionUp(true);
             Shooter.start();
             Thread.sleep(2000);
@@ -608,88 +654,46 @@ public class RobotTemplate extends SimpleRobot
     }
     public void auto8()
     {
-        //
+        //special pnuematics
         try
         {
             System.out.println("Start Auton 8");
-            Shooter.setPositionUp(false);
+            Kracken.disablePnumatics();
+            Drive.disablePnumatics();
+            Shooter.disableFrontPistons();
+           
+            System.out.println("Shooter On");
             Shooter.start();
-            Thread.sleep(2000);
+            
+            Thread.sleep(4000);
+            
+            System.out.println("Shoot 1");
+            Shooter.shoot();
+            Thread.sleep(200);
+            Shooter.load();
+            
+            Thread.sleep(3000);
+            
+            System.out.println("Shoot 2");
+            Shooter.shoot();
+            Thread.sleep(200);
+            Shooter.load();
+            
+            Thread.sleep(3000);
             
             System.out.println("Shoot 3");
-            autoShoot(3);
+            Shooter.shoot();
+            Thread.sleep(200);
+            Shooter.load();
             
-            System.out.println("Back Up");
+            Thread.sleep(1000);
+            
             Shooter.stop();
-            Drive.SetLeftSpeed(-1);
-            Drive.SetRightSpeed(-1);
-            Thread.sleep(250);
-            
-            System.out.println("Turn");
-            Arm.setPosition(0);
-            AutoGyro.reset();
-            while(AutoGyro.getAngle()<180)
-            {
-                Drive.SetLeftSpeed(.4);
-                Drive.SetRightSpeed(-.4);
-                System.out.println("Angle " + AutoGyro.getAngle());
-            }
-            Drive.SetLeftSpeed(0);
-            Drive.SetRightSpeed(0);
-            
-            System.out.println("Drive Forward");
-            Arm.pickupOn();
-            Drive.Traction(true);
-            Drive.SetLeftSpeed(1);
-            Drive.SetRightSpeed(1);
-            Thread.sleep(3000);
-            
-            System.out.println("Stop Pickup");
-            Arm.pickupOff();
-            Arm.setPosition(1);
-            Thread.sleep(1250);
-            
-            System.out.println("Turn");
-            AutoGyro.reset();
-            Thread.sleep(10);
-            System.out.println("Initial Angle " + AutoGyro.getAngle());
-            while (AutoGyro.getAngle()<180)
-            {
-                Drive.SetLeftSpeed(.4);
-                Drive.SetRightSpeed(-.4);
-                System.out.println("Angle 2 " + AutoGyro.getAngle());
-            }
-            Drive.SetLeftSpeed(0);
-            Drive.SetRightSpeed(0);
-            
-            System.out.println("Lower Arm");
-            Arm.setPosition(0);
-            Shooter.start();
-            Thread.sleep(200);
-            
-            System.out.println("Drive Forward");
-            Drive.SetLeftSpeed(1);
-            Drive.SetRightSpeed(1);
-            Thread.sleep(3000);
-            
-            System.out.println("Raise Arm");
-            Arm.setPosition(2);
-            Thread.sleep(200);
-            
-            System.out.println("Back Up");
-            Drive.SetLeftSpeed(1);
-            Drive.SetRightSpeed(1);
-            Thread.sleep(300);
-            
-            System.out.println("Shoot");
-            Drive.SetLeftSpeed(0);
-            Drive.SetRightSpeed(0);
-            autoShoot(3);
         }
         catch(Exception e)
         {
             e.printStackTrace();
         }
-}
+    }
 }
 

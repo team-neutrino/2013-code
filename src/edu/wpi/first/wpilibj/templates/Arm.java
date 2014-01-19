@@ -5,6 +5,7 @@
 package edu.wpi.first.wpilibj.templates;
 
 import edu.wpi.first.wpilibj.AnalogChannel;
+import edu.wpi.first.wpilibj.DriverStationLCD;
 import edu.wpi.first.wpilibj.Victor;
 
 /**
@@ -24,6 +25,8 @@ public class Arm implements Runnable
     int Position; // the position of the arm, 0 - down, 1 - load, 2 - up
     
     boolean Running; //tells if the arm is running for the thread
+    boolean Disabled; //disabled for climb
+    
     Arm(Shooter shooter)
     {
         //set up objects
@@ -82,6 +85,11 @@ public class Arm implements Runnable
             thread.start();
         }
     }
+    
+    public void setDisabled(boolean disabled)
+    {
+        Disabled = disabled;
+    }
 
     public void run() 
     {
@@ -135,11 +143,11 @@ public class Arm implements Runnable
                     
             
             //minimum speed
-            if (speed < .4 && speed > 0 && error > 5) {
-                speed = .4;
+            if (speed < .6 && speed > 0 && error > 12) {
+                speed = .6;
             }
-            else if(speed > -.4 && speed < 0 && error < -5){
-                speed = -.4;
+            else if(speed > -.6 && speed < 0 && error < -12){
+                speed = -.6;
             }
             //System.out.println("Speed" + speed);
             if(speed > 0 && Position == 0) //slow down for bottom position
@@ -147,11 +155,27 @@ public class Arm implements Runnable
                 speed = speed / 4;
             }
             
+            //Encoder Unplugged
+            if(Math.abs(PositionSensor.getValue()) < 5)
+            {
+                speed = 0;
+                System.out.println("Arm Encoder Unpluged");
+                DriverStationLCD.getInstance().println(DriverStationLCD.Line.kUser2, 1, "Warning: Arm Encoder");
+                DriverStationLCD.getInstance().println(DriverStationLCD.Line.kUser3, 1, "Disconnected");
+                DriverStationLCD.getInstance().updateLCD();
+            }
+            
+            if(Disabled)
+            {
+                speed = 0;
+            }
+            
+            
             LiftMotor.set(-speed); //update motor
             
             if(Position == 1) //Automated Feed
             {
-                if(Math.abs(error) < 9)
+                if(Math.abs(error) < 20)
                 {
                     PickupMotor.set(.55);
                 }

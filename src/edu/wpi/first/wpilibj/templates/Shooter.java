@@ -22,15 +22,13 @@ public class Shooter implements Runnable
     //up & down piston
     Solenoid SolenoidUp;
     Solenoid SolenoidDown;
+    Solenoid SolenoidLoadA;
+    Solenoid SolenoidLoadB;
     
     //piston to feed frisbees into the shooter
     Solenoid SolenoidHopper1;
     Solenoid SolenoidHopper2;
     Solenoid SolenoidSensorPower;
-    
-    Solenoid SolenoidLightsWhite;
-    Solenoid SolenoidLightsRed;
-    Solenoid SolenoidLightsBlue;
     
     //sensor to check the speed of the primary motor
     Counter SpeedSensor;
@@ -40,13 +38,22 @@ public class Shooter implements Runnable
     
     boolean PositionUp;
     
-    public Shooter()
+    DigitalInput SafeModeSwitch;
+    int ShooterRPM;
+    
+    LightManager LightManager;
+    
+    boolean PnumaticsDisabled;
+    
+    public Shooter(LightManager lightManager, DigitalInput safeModeSwitch)
     {
         //set up objects
         PrimaryMotor = new Victor(Constants.PRIMARY_SHOOTER_MOTOR_CHANNEL);
         SecondaryMotor = new Victor(Constants.SECONDARY_SHOOTER_MOTOR_CHANNEL);
         SolenoidUp = new Solenoid(Constants.SOLENOID_SHOOTER_UP_SLOT,Constants.SOLENOID_SHOOTER_UP_CHANNEL);
         SolenoidDown = new Solenoid(Constants.SOLENOID_SHOOTER_DOWN_SLOT, Constants.SOLENOID_SHOOTER_DOWN_CHANNEL);
+        SolenoidLoadA = new Solenoid(Constants.SOLENOID_SHOOTER_LOAD_A_SLOT, Constants.SOLENOID_SHOOTER_LOAD_A_CHANNEL);
+        SolenoidLoadB = new Solenoid(Constants.SOLENOID_SHOOTER_LOAD_B_SLOT, Constants.SOLENOID_SHOOTER_LOAD_B_CHANNEL);
         SolenoidHopper1 = new Solenoid(Constants.SOLENOID_HOPPER_1_SLOT, Constants.SOLENOID_HOPPER_1_CHANNEL);
         SolenoidHopper2 = new Solenoid(Constants.SOLENOID_HOPPER_2_SLOT,Constants.SOLENOID_HOPPER_2_CHANNEL);
         SpeedSensor = new Counter(Constants.SHOOTER_SPEED_SENSOR_CHANNEL);
@@ -55,29 +62,21 @@ public class Shooter implements Runnable
         SolenoidSensorPower = new Solenoid(Constants.SOLENOID_SENSOR_POWER_SLOT, Constants.SOLENOID_SENSOR_POWER_CHANNEL);
         SolenoidSensorPower.set(true);
         PositionUp = false;
-        SolenoidLightsWhite = new Solenoid(Constants.LIGHTS_WHITE_SLOT,Constants.LIGHTS_WHITE_CHANNEL);
-        SolenoidLightsRed = new Solenoid(Constants.LIGHTS_RED_SLOT,Constants.LIGHTS_RED_CHANNEL);
-        SolenoidLightsBlue = new Solenoid(Constants.LIGHTS_BLUE_SLOT,Constants.LIGHTS_BLUE_CHANNEL);
+        LightManager = lightManager;
+        SafeModeSwitch = safeModeSwitch;
         
+        ShooterRPM = Constants.PRIMARY_SHOOTER_MOTOR_RPM;
+        
+        PnumaticsDisabled = false;
     }
     
     public void setPositionUp(boolean position) 
     {
-        //move the shooter between two positions
-        PositionUp = position;
-        if(position)
+        if(!PnumaticsDisabled)
         {
-            SolenoidUp.set(true);
-            SolenoidLightsBlue.set(true);
-            SolenoidDown.set(false);
-            SolenoidLightsRed.set(false);
-        }
-        else
-        {
-            SolenoidUp.set(false);
-            SolenoidLightsBlue.set(false);
-            SolenoidDown.set(true);
-            SolenoidLightsRed.set(true);
+            //move the shooter between two positions
+            PositionUp = position;
+            updatePosition();
         }
     }
     
@@ -95,9 +94,11 @@ public class Shooter implements Runnable
     public void shoot() 
     {
         //shoot the frisbee
-        SolenoidHopper1.set(false);
-        SolenoidHopper2.set(true);
-        
+        if(Running)
+        {    
+            SolenoidHopper1.set(false);
+            SolenoidHopper2.set(true);
+        }
     }
     
     public void start()
@@ -110,13 +111,16 @@ public class Shooter implements Runnable
             Thread thread = new Thread(this); //make a thread to control the primary motor & start it
             thread.start();
         }
+        updatePosition();
     }
     
     public void stop()
     {
+        load();
         SecondaryMotor.set(0); //stop the secondary motor
         Running = false; //tell the thread to stop
-        SolenoidLightsWhite.set(false);
+        LightManager.setWhite(false);
+        updatePosition();
     }
 
     public void run() 
@@ -126,38 +130,129 @@ public class Shooter implements Runnable
         double sensorRPM; //the value from the sensor converted to RPM
         while(Running)
         {
+            
+            if(!SafeModeSwitch.get())
+            {
+                //safe
+                ShooterRPM = Constants.PRIMARY_SHOOTER_MOTOR_REDUCED_RPM;
+            }
+            else
+            {
+                //normal
+                ShooterRPM = Constants.PRIMARY_SHOOTER_MOTOR_RPM;
+            }
+            
             //get the value from the sensor and convert it to RPM
             sensorRawValue = SpeedSensor.getPeriod();
             sensorRPM = 1 / sensorRawValue * 60;
             //System.out.println("Speed Sensor Raw Value:" + sensorRawValue);
             //System.out.println("Speed Sensor Converted to RPM:" + sensorRPM);
+            //System.out.println(SafeModeSwitch.get());
             
             //if the motor is spinning slower than the target RPM increase it's speed, if it's faster, decrease it's speed
-            if((sensorRPM < Constants.PRIMARY_SHOOTER_MOTOR_RPM) && (motorSpeed < 1)) 
+            if((sensorRPM < ShooterRPM) && (motorSpeed < 1)) 
             {
                 //System.out.println("SpeedingUp");
                 motorSpeed = motorSpeed + .01;
             }
-            else if ((sensorRPM > Constants.PRIMARY_SHOOTER_MOTOR_RPM) && (motorSpeed > 0))
+            else if ((sensorRPM > ShooterRPM) && (motorSpeed > 0))
             {
                  //System.out.println("SlowingDwon"); 
                  motorSpeed = motorSpeed - .01;
             }
-            if(Math.abs(sensorRPM - Constants.PRIMARY_SHOOTER_MOTOR_RPM) < 200)
+            if(Math.abs(sensorRPM - ShooterRPM) < 200)
             {
-                SolenoidLightsWhite.set(true);
+                LightManager.setWhite(true);
             }
             else
             {
-                SolenoidLightsWhite.set(false);
+                LightManager.setWhite(false);
             }
             //System.out.println("Shooter Motor Speed:" + motorSpeed);
             
             //update the motor on it's speed
             //System.out.println("RPM:" + sensorRPM);
             //System.out.println("motorSpeed:" + motorSpeed + "\n");
+            
             PrimaryMotor.set(motorSpeed);
+            
+            //Update Lights
+            if(PositionUp)
+            {
+                LightManager.setBlue(true);
+                LightManager.setRed(false);
+            }
+            else
+            {
+                LightManager.setBlue(false);
+                LightManager.setRed(true);
+            }
         }
         PrimaryMotor.set(0); //turn off the motor
+    }
+    
+    private void updatePosition()
+    {
+        if(!PnumaticsDisabled)
+            {
+            if(Running)
+            {
+                SolenoidLoadA.set(true);
+                SolenoidLoadB.set(false);
+            }
+            else
+            {
+                SolenoidLoadA.set(false);
+                SolenoidLoadB.set(true);
+            }
+            if(PositionUp)
+            {
+                SolenoidUp.set(true);
+                LightManager.setBlue(true);
+                SolenoidDown.set(false);
+                LightManager.setRed(false);
+            }
+            else
+            {
+                SolenoidUp.set(false);
+                LightManager.setBlue(false);
+                SolenoidDown.set(true);
+                LightManager.setRed(true);
+            }
+        }
+    }
+
+    void disableFrontPistons()
+    {
+        SolenoidUp.set(false);
+        SolenoidDown.set(false);
+        SolenoidLoadA.set(false);
+        SolenoidLoadB.set(false);
+        
+        PositionUp = false;
+        
+        PnumaticsDisabled = true;
+    }
+    
+    void enableFrontPistons()
+    {
+        SolenoidUp.set(false);
+        SolenoidDown.set(true);
+        LightManager.setBlue(false);
+        LightManager.setRed(true);
+        if(Running)
+        {
+            SolenoidLoadA.set(true);
+            SolenoidLoadB.set(false);
+        }
+        else
+        {
+            SolenoidLoadA.set(false);
+            SolenoidLoadB.set(true);
+        }
+        
+        PositionUp = false;
+        
+        PnumaticsDisabled = false;
     }
 }
